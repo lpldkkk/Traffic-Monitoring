@@ -2,27 +2,27 @@
 
 基于本机抓包、连接行为证据和大模型原生 Function Calling 的网络安全分析工具。实时采集、规则评估和事件生成独立于 LLM 运行；模型通过只读工具查询证据，不能执行任意命令、封禁网络或终止进程。
 
-当前分支为 **阶段 1C 功能重建版**：在现有源码上隔离 Dashboard 后重新验证，不声称是历史验收时的逐字节快照。入口为 `python app.py`，界面为 Tkinter。数据库版本仍为 **4**。
+适用于本机网络活动观察、可疑连接取证和历史流量分析。程序使用 Python 开发，提供 Tkinter 桌面界面，入口为 `python app.py`。
 
-## 版本范围
+## 核心功能
 
-- **1A**：独立 `connection_id`、五元组复用处理、TCP 观察边界与不确定性、应用身份持久化、版本化迁移。
-- **1B**：异常线索、安全事件关联、去重、revision、成员、证据与时间线。
-- **1C**：持久化调查队列、固定事件范围、原生 Function Calling、步骤恢复、预算、重试、取消、结构化报告及 Tkinter 任务入口。
-- 保留实时抓包、CSV、PCAP 回放、正常基线、相似历史、检测评估及原课程 C++ 源码。
-- FastAPI、React、TypeScript Dashboard 保存在 `dev/dashboard`，不属于本分支，也不需要 Node.js。
-
-`traffic_agent/` 是内部 Python 包，不是项目整体名称。启动入口、包导入和数据库默认位置没有改名。
+- 实时采集：通过 Npcap 和 Scapy 获取所选网卡可见的流量，统计协议、包数、字节数和连接行为。
+- 连接识别：使用独立 `connection_id` 区分 TCP 连接实例，记录双向统计、握手观察、关闭状态和不确定性。
+- 应用归属：保存进程身份和匹配范围，在有可验证证据时关联本机代理连接。
+- 异常评估：使用可解释规则产生线索，提供评分依据、正常基线和相似历史查询。
+- 安全事件：关联相关线索，保存事件成员、版本、关联理由、证据和时间线。
+- Agent 调查：通过原生 Function Calling 查询证据，支持持久化任务、步骤恢复、重试、取消、费用预算和结构化报告。
+- 历史与离线分析：保存编号采集会话，支持 CSV 导入、PCAP 回放和带标签数据的检测评估。
 
 ## Agent 框架是什么
 
-这是自行实现的 Python Agent 循环，使用 OpenAI 兼容的 Chat Completions API 和原生 Function Calling，没有 MCP、LangChain 或 LangGraph。
+Agent 使用 OpenAI 兼容的 Chat Completions API 和原生 Function Calling，由 Python 程序管理工具执行与多轮分析。
 
 一次普通工具分析是：程序把问题和 JSON Schema 工具定义交给模型；模型返回工具名称与参数；本地程序校验白名单、参数、范围和预算后执行 Python 查询；结构化结果作为工具消息回传给模型，继续下一轮，最后校验证据并显示回答。模型本身不能直接读取数据库或控制网卡。
 
-普通对话可以让模型选择工具；高风险连接调查要求完成规定的取证步骤；1C 事件调查则限定在入队时冻结的事件 revision 和证据清单中。因此，它是**受约束的工具调用 Agent 与确定性调查流程的组合**，不等于完全自主规划的安全分析员。
+普通对话允许模型选择工具；高风险连接调查要求完成规定的取证步骤；事件调查限定在入队时冻结的事件 revision 和证据清单中。工具调用受数据范围、参数白名单和预算约束。
 
-检测和调查分工：规则模块提出异常线索，事件模块关联线索，LLM 查询证据并尝试解释。没有训练自己的检测模型，也没有让 LLM 逐包判断。接入 MCP 只会改变工具如何标准化对外提供，不会自动改善检测准确率；本项目无需 MCP 也能调用本地工具。
+检测和调查分工：规则模块提出异常线索，事件模块关联线索，LLM 查询证据并解释可能原因。采集持续运行，模型按分析任务处理汇总和取证结果。
 
 ## 安装与启动
 
@@ -52,7 +52,7 @@ python -m venv .venv
 
 ## 模型与费用
 
-在“设置”选择现有 OpenAI 或 DeepSeek 预设并保存 API Key。预设名称和预算单价来自 `traffic_agent/config.py`，实际可用模型、服务商价格和账户权限应以服务商为准；本版本没有增加模型。
+在“设置”选择 OpenAI 或 DeepSeek 预设并保存 API Key。预设名称和预算单价来自 `traffic_agent/config.py`，实际可用模型、服务商价格和账户权限应以服务商为准。
 
 也可在尚未保存本地配置时使用环境变量：
 
@@ -107,19 +107,19 @@ CSV / PCAP → 离线分析路径，共用现有解析、评估和查询模块
 | `traffic_agent/capture.py`、`connection_instances.py` | 实时解析、实例边界、TCP 观察状态 |
 | `traffic_agent/store.py`、`migrations.py` | SQLite 存储、版本迁移、备份恢复 |
 | `traffic_agent/applications.py`、`connections.py`、`proxy.py` | 应用身份、连接视图及代理关联 |
-| `traffic_agent/anomaly.py`、`baseline.py` | 不变的规则评分、证据和正常范围 |
+| `traffic_agent/anomaly.py`、`baseline.py` | 规则评分、证据和正常范围 |
 | `traffic_agent/incidents.py`、`incident_store.py` | 确定性事件关联、成员、revision、证据与时间线 |
 | `traffic_agent/jobs.py`、`runtime.py` | 持久任务、预算预留、恢复和调度 |
 | `traffic_agent/agent.py`、`tools.py`、`investigation.py` | 原生 Function Calling、参数白名单、冻结只读工具、报告校验 |
 | `traffic_agent/ui.py`、`local_lock.py` | Tkinter 和同数据目录单实例保护 |
 | `traffic_agent/replay.py`、`evaluation.py`、`lab.py` | PCAP、检测指标及可选本机回环实验 |
 | `tests/` | 自动化回归与明确标注的合成夹具生成器 |
-| `1源代码/` | 个人开发的原 C++ 课程源码，保留参考，不参与 Python 构建 |
-| `data/`、`datasets/`、`2可执行程序/` | 本地资料，忽略提交；数据库、真实 PCAP、原 CSV 和 EXE 不随源码发布 |
+| `data/` | 本地数据库、自动备份和回放结果 |
+| `datasets/` | 可选的本机实验样本及标签 |
 
 ## 数据库与恢复
 
-版本 4 包含会话、实例、应用身份、事件等原表，以及 `investigation_jobs`、`investigation_steps`、`investigation_reports`、`investigation_sources`、`investigation_worker`。
+SQLite 数据库保存采集会话、连接实例、应用身份、安全事件、调查任务、步骤、报告和费用账本。调查任务表包括 `investigation_jobs`、`investigation_steps`、`investigation_reports`、`investigation_sources`、`investigation_worker`。
 
 历史已聚合连接保持 `legacy_aggregate` 等标识，不伪装成精确实例。TCP 实例区分 SYN 重传、关闭后重建和五元组复用，乱序、缺包及中途开始抓包仍保留不确定性。旧数据不能补出未保存的报文内容或握手证据。
 
@@ -130,7 +130,7 @@ from traffic_agent.migrations import restore_copy
 restore_copy("备份文件.sqlite", "新的恢复文件.db")  # 目标必须不存在
 ```
 
-不会在重建本版本或运行常规测试时自动迁移用户原库。用户随后正常启动程序时，程序仍按实际版本执行备份/迁移。删除或筛选采集会清理依赖它的派生事件证据及调查记录，操作前应确认保留范围。
+程序启动时按数据库版本执行必要的备份和升级。删除或筛选采集会清理依赖它的派生事件证据及调查记录，操作前应确认保留范围。
 
 ## PCAP、CSV 与检测评估
 
@@ -170,7 +170,7 @@ python -m unittest discover -s tests -v
 
 这会生成本机 HTTP/TCP/UDP 流量并可能显示短暂测试窗口，需要 Npcap 权限。默认测试跳过这些用例不代表它们已经验证通过。
 
-历史 1C 验收记录为 235 项、234 通过、0 失败、1 跳过，仅代表当时环境；本次重建结果单独记录于 `CHANGELOG.md`。真实模型自主选工具、解释质量和实际账单行为尚未验证。受控本机样本、相关重复实验和合成规则用例均不能证明公网攻击检测准确率。
+测试覆盖连接识别、规则评估、事件关联、持久化调查、预算和恢复等功能。脚本模型和合成规则用例用于验证程序行为；真实模型的调查质量与真实攻击检测效果需要单独评估。
 
 ## 隐私、安全与已知限制
 
@@ -181,13 +181,9 @@ python -m unittest discover -s tests -v
 - 没有足够人工正常历史时，基线和类似历史会返回证据不足。
 - 长期高吞吐、超大事件拆分、全部平台兼容性和真实模型调查质量仍需验证。
 
-## 开发、贡献与项目范围
+## 许可证
 
-修改前先运行适用测试。规则变更应记录版本、证据字段和误报/漏报影响；不能放宽断言掩盖回归。问题反馈请提供版本、复现步骤和脱敏日志，不附 API Key、用户数据库或真实 PCAP。安全问题应先通过维护者认可的私密渠道反馈，当前未指定公开接收邮箱。
-
-项目交付范围截止阶段 1C。`dev/dashboard` 仅保留已经产生的开发成果，不继续进行 UI 迁移或后续阶段开发。本版本的长期压力测试、独立人工标注与真实模型质量验证仍属于已披露的限制，不能作为已交付能力宣传。
-
-项目自有代码采用 **GNU GPL version 2 only（SPDX: GPL-2.0-only）**，见 [LICENSE](LICENSE)；维护者已确认自有代码权属并选择此许可。该声明不重新许可任何第三方依赖。本版本仅建立本地提交，未发布 GitHub。
+项目自有代码采用 **GNU GPL version 2 only（SPDX: GPL-2.0-only）**，见 [LICENSE](LICENSE)。第三方依赖保留各自许可。
 
 | 依赖 | 自身许可 |
 | --- | --- |
@@ -196,4 +192,4 @@ python -m unittest discover -s tests -v
 | jsonschema | MIT |
 | Paramiko（可选 SSH 实验） | LGPL-2.1 |
 
-依赖由安装工具单独获取，不把本机 `.runtime` 打入源码提交。依赖版本范围内的实际版本及传递依赖应在再分发时复核并保留其许可和版权通知。Npcap 使用自身许可，不随 GPL 项目源码附送驱动安装程序。
+依赖由安装工具单独获取。再分发时应保留相应许可和版权通知。Npcap 使用自身许可，驱动需单独安装。

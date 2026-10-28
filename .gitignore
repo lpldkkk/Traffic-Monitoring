@@ -20,6 +20,3 @@ datasets/
 *.pcapng
 *.log
 *.exe
-dashboard/node_modules/
-dashboard/dist/
-dashboard/*.tsbuildinfo

@@ -10,7 +10,7 @@ if (HOME / ".runtime").exists():
 def main():
     import argparse
     import json
-    parser = argparse.ArgumentParser(description="流量监测（Traffic Monitoring）· 阶段 1C 桌面版")
+    parser = argparse.ArgumentParser(description="流量监测（Traffic Monitoring）· 网络流量分析与安全调查")
     parser.add_argument("--interfaces", action="store_true", help="列出可抓包网卡")
     parser.add_argument("--capture-test", metavar="INTERFACE", help="在指定网卡执行真实限时抓包测试")
     parser.add_argument("--seconds", type=int, default=5)

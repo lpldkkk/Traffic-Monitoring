@@ -415,7 +415,7 @@ class IncidentMigrationTests(unittest.TestCase):
             sid=store.start_session('synthetic migration')
             store.end_session(sid)
             store.save_session_report(sid,'keep me',True)
-            # Recreate the exact pre-1B state: new tables absent, source tables unchanged.
+            # Recreate schema version 2 without incident tables; preserve source tables.
             for table in ('incident_timeline','incident_members','incident_finding_evidence','incident_findings','incident_evidence','incidents'):
                 store.db.execute('DROP TABLE '+table)
             store.db.execute('PRAGMA user_version=2')
