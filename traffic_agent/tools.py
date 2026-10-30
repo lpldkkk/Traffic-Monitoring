@@ -103,8 +103,11 @@ class EventToolset:
                       if name in {'query_connection','query_application_identity','query_anomaly_evidence',
                                   'query_connection_baseline','query_similar_sessions'} else
                       {'evidence_id':{'type':'string','pattern':'^ie_[0-9a-f]{32}$'}} if name=='query_incident_evidence' else {})
+            required=list(params)
+            if name in {'query_incident_members','query_incident_timeline','query_incident_evidence'}:
+                params={**params,**INCIDENT_PAGING}
             self.definitions.append(definition(name,
-                '只读本任务固定event_id/revision的冻结证据；参数必须来自待查询清单。不读取新增流量。分页或其他范围未冻结时须报告未调查。',params,list(params)))
+                '只读本任务固定event_id/revision的冻结证据；参数必须来自待查询清单。不读取新增流量。分页或其他范围未冻结时须报告未调查。',params,required))
         self.validators={d['function']['name']:Draft202012Validator(d['function']['parameters']) for d in self.definitions}
 
     def resolve(self,name,arguments):

@@ -430,8 +430,6 @@ class Store:
 
     def save_session_report(self, session_id, answer, citation_valid, expected_revision=None):
         answer = str(answer)
-        if len(answer) > 200000:
-            return False
         with self.lock, self.db:
             row = self.db.execute('SELECT revision FROM capture_sessions WHERE id=?', (session_id,)).fetchone()
             if not row or (expected_revision is not None and row['revision'] != expected_revision):
@@ -961,10 +959,7 @@ class Store:
 
     def reserve(self, amount, config):
         with self.lock, self.db:
-            changed = self.db.execute("""UPDATE budget SET calls=calls+1,reserved=reserved+?
-              WHERE id=1 AND reserved+?<=?""", (amount, amount, config.max_cost)).rowcount
-            if not changed:
-                raise ValueError("费用预留已达到上限；采集继续运行")
+            self.db.execute("UPDATE budget SET calls=calls+1,reserved=reserved+? WHERE id=1", (amount,))
 
     def report_cost(self, amount, reservation=0):
         with self.lock, self.db:

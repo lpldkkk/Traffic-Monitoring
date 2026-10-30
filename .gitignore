@@ -20,3 +20,4 @@ datasets/
 *.pcapng
 *.log
 *.exe
+/tests/

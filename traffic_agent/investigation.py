@@ -149,7 +149,7 @@ def event_report(job, steps, model=None, error=None):
 
 
 class SafeModelRetry(Exception):
-    """A definite pre-execution rejection; safe to retry within attempt budget."""
+    """A definite pre-execution rejection that can be retried with backoff."""
 
 
 class EventInvestigation:
@@ -159,8 +159,7 @@ class EventInvestigation:
 
     def run(self):
         from dataclasses import replace
-        import time
-        from .agent import fit_context, CONTEXT_LIMIT_BYTES, OUTPUT_RESERVE_TOKENS, redact_text, ModelHTTPError, HTTPTransport
+        from .agent import request_size, OUTPUT_RESERVE_TOKENS, redact_text, ModelHTTPError
         from .jobs import JobStopped, LimitReached
         from .tools import EventToolset
         config=replace(self.agent.config); config.validate(); key=self.agent.api_key
@@ -173,11 +172,9 @@ class EventInvestigation:
                 scope=self.job['snapshot']['observation_range'],omissions=self.job['snapshot']['omissions'],
                 required_queries=[dict(name=e['name'],arguments=e['arguments']) for e in toolset.entries.values()]),ensure_ascii=False)}]
             self.jobs.checkpoint(self.job_id,messages)
-        deadline=time.monotonic()+self.job['max_seconds']
         def check():
             if self.stop_event.is_set(): raise InterruptedError('执行器停止，保留成功步骤供下次恢复')
             self.jobs.ensure_running(self.job_id)
-            if time.monotonic()>deadline: raise LimitReached('本次调查达到执行时间预算')
         while True:
             check()
             # Resume assistant tool calls that were persisted before a crash.
@@ -189,7 +186,7 @@ class EventInvestigation:
                     if call['id'] in answered: continue
                     check()
                     entry=toolset.resolve(call['function']['name'],call['function']['arguments'])
-                    step_id,saved=self.jobs.begin_query(self.job_id,entry,config.max_tools)
+                    step_id,saved=self.jobs.begin_query(self.job_id,entry)
                     if saved is None:
                         try:
                             # Frozen tools only read in-memory JSON. Serialize the
@@ -216,15 +213,13 @@ class EventInvestigation:
             body=dict(model=config.model,messages=messages,tools=toolset.definitions,tool_choice='auto')
             if config.model in {'deepseek-flash','deepseek-v4-pro'} and config.base_url.rstrip('/')=='https://api.deepseek.com':
                 body['thinking']={'type':'disabled'}
-            input_bound,_=fit_context(body)
-            if input_bound>CONTEXT_LIMIT_BYTES: raise LimitReached('冻结证据超过单次模型上下文预算')
+            input_bound=request_size(body)
             reservation=(input_bound*config.input_price+OUTPUT_RESERVE_TOKENS*config.output_price)/1_000_000
             self.jobs.checkpoint(self.job_id,messages)
             step_id=self.jobs.begin_model(self.job_id,reservation,config)
-            # Durable running marker + both budget reservations precede the send.
+            # Usage accounting and the durable request marker precede the send.
             try:
-                response=(self.agent.transport.complete(config,key,body,deadline=deadline)
-                    if isinstance(self.agent.transport,HTTPTransport) else self.agent.transport.complete(config,key,body))
+                response=self.agent.transport.complete(config,key,body)
             except Exception as exc:
                 safe=isinstance(exc,SafeModelRetry) or isinstance(exc,ModelHTTPError) and exc.status_code in {400,401,403,404,429}
                 summary=('明确拒绝请求' if safe else '模型请求结果未知，可能已计费')+'：'+type(exc).__name__
@@ -246,7 +241,7 @@ class EventInvestigation:
                 original=choices[0]['message']
                 message={k:original[k] for k in ('content','tool_calls') if k in original}; message['role']='assistant'
                 calls=message.get('tool_calls') or []
-                valid=(message.get('content') is None or isinstance(message['content'],str)) and isinstance(calls,list) and len(calls)<=32
+                valid=(message.get('content') is None or isinstance(message['content'],str)) and isinstance(calls,list)
                 call_ids=set()
                 if valid:
                     for call in calls:

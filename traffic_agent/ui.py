@@ -1,6 +1,5 @@
 """Connection-first desktop UI. All Tk operations stay on the main thread."""
 from collections import deque
-from dataclasses import replace
 import json
 from pathlib import Path
 import queue
@@ -142,7 +141,7 @@ class App:
         self._settings_page()
         self.status_var = tk.StringVar(value=self.network_status)
         label(body, textvariable=self.status_var, size=9, color=MUTED, anchor='w').grid(row=2, column=0, sticky='ew', padx=24, pady=(0, 12))
-        self.append(self.chat, '系统', '点击“检测当前网络”即可查看连接和应用，无需配置API。需要AI调查时，再到设置填写模型和预算。红色感叹号表示待核实的异常迹象。')
+        self.append(self.chat, '系统', '点击“检测当前网络”即可查看连接和应用，无需配置API。需要AI调查时，再到设置选择模型并填写API Key。红色感叹号表示待核实的异常迹象。')
         self.show_page('connections')
         root.protocol('WM_DELETE_WINDOW', self.close)
         root.after(100, self.poll)
@@ -619,38 +618,19 @@ class App:
         self.model_status_var = tk.StringVar(value=f"当前：{provider_for(self.config)} / {self.config.model}")
         label(page, textvariable=self.model_status_var, color=TEAL).pack(anchor='w', pady=(10, 0))
         button(page, '选择模型 / 保存 API Key', self.settings, primary=True).pack(anchor='w', pady=16)
-        budget_row=tk.Frame(page,bg=BG); budget_row.pack(anchor='w',pady=(0,12))
-        label(budget_row,'累计费用预算 USD').pack(side='left')
-        self.total_budget=tk.StringVar(value=str(self.agent.config.max_cost))
-        tk.Entry(budget_row,textvariable=self.total_budget,width=10,bg=CARD,fg=TEXT).pack(side='left',padx=8)
-        button(budget_row,'保存预算',self.save_total_budget).pack(side='left')
         tk.Checkbutton(page, text='自动研判（仅实时数据）', variable=self.auto, command=self.toggle_monitor, bg=BG, fg=TEXT,
             selectcolor=CARD, activebackground=BG, activeforeground=TEXT, font=('Microsoft YaHei UI', 10)).pack(anchor='w')
         label(page, '隐私与识别范围', size=16).pack(anchor='w', pady=(30, 10))
         label(page, '仅采集头部元数据，不保存原始报文。应用归属通过系统连接表快照匹配，短连接、共享UDP端口或权限不足可能无法识别。\n\n自动只读连接本机 Clash Verge 控制接口（含 Windows 命名管道），通过代理连接元数据或原始端点关联应用。域名仅在本地显示；代理返回的路径只取文件名，不保留完整路径。\n\n代理应用视图显示活动连接自建立以来累计；网卡出口显示近5分钟抓包，二者不相加。代理视图不提供逐包异常检测，请切换网卡出口查看红色提示。', color=MUTED, wraplength=780, justify='left').pack(anchor='w')
-
-    def save_total_budget(self):
-        try:
-            config=replace(self.agent.config,max_cost=float(self.total_budget.get())); config.validate()
-        except ValueError as exc:
-            messagebox.showerror('预算未保存',str(exc),parent=self.root); return
-        def save():
-            config.save(self.home/'config.local.json')
-            self.config=self.agent.config=config
-            return {'budget_limit':config.max_cost}
-        self.background(save,'job_action')
 
     def _jobs_page(self):
         page=self.pages['jobs']
         page.columnconfigure(0,weight=1); page.rowconfigure(3,weight=1)
         top=tk.Frame(page,bg=BG); top.grid(row=0,column=0,sticky='ew',pady=(0,8))
         self.jobs_auto=tk.BooleanVar(value=False)
-        tk.Checkbutton(top,text='自动调查新高风险事件（使用API预算）',variable=self.jobs_auto,
+        tk.Checkbutton(top,text='自动调查新高风险事件（调用模型API）',variable=self.jobs_auto,
             command=lambda:setattr(self.investigator,'automatic',self.jobs_auto.get()),bg=BG,fg=TEXT,
             selectcolor=CARD,activebackground=BG,activeforeground=TEXT).pack(side='left')
-        label(top,'任务预算 USD',color=MUTED).pack(side='left',padx=(16,5))
-        self.job_cost=tk.StringVar(value='0.25')
-        tk.Entry(top,textvariable=self.job_cost,width=8,bg=CARD,fg=TEXT).pack(side='left')
         self.job_event=tk.StringVar()
         events=tk.Frame(page,bg=BG); events.grid(row=1,column=0,sticky='ew',pady=(0,8))
         self.job_event_box=ttk.Combobox(events,textvariable=self.job_event,state='readonly',width=55)
@@ -661,7 +641,7 @@ class App:
         filters=ttk.Combobox(bar,textvariable=self.job_filter,values=['全部',*STATUSES],state='readonly',width=16)
         filters.pack(side='left'); filters.bind('<<ComboboxSelected>>',lambda e:self.refresh_jobs(reset=True))
         for title,action in [('刷新',self.refresh_jobs),('报告/步骤',lambda:self.job_action('view')),
-                             ('重试/恢复预算',lambda:self.job_action('retry')),('取消任务',lambda:self.job_action('cancel'))]:
+                             ('重试',lambda:self.job_action('retry')),('取消任务',lambda:self.job_action('cancel'))]:
             button(bar,title,action).pack(side='left',padx=3)
         columns=('event','revision','status','attempt','progress')
         self.job_tree=ttk.Treeview(page,columns=columns,show='headings',style='Archive.Treeview')
@@ -693,10 +673,7 @@ class App:
     def enqueue_event(self):
         event_id=self.job_event_ids.get(self.job_event.get())
         if not event_id: return
-        try: cost=float(self.job_cost.get())
-        except ValueError:
-            messagebox.showerror('任务预算','请输入有效金额',parent=self.root); return
-        self.background(lambda:self.store.jobs.enqueue(event_id,self.agent.config,cost_limit=cost),'job_action')
+        self.background(lambda:self.store.jobs.enqueue(event_id,self.agent.config),'job_action')
 
     def job_action(self,action):
         selected=self.job_tree.selection()
@@ -713,10 +690,7 @@ class App:
                 confirmed=messagebox.askyesno('可能重复计费',
                     '服务商可能已经处理了此前请求。确认重试并接受可能的重复计费？',parent=self.root)
                 if not confirmed: return
-            try: cost=float(self.job_cost.get())
-            except ValueError:
-                messagebox.showerror('任务预算','请输入有效金额',parent=self.root); return
-            self.background(lambda:self.store.jobs.retry(job_id,confirm_unknown=confirmed,cost_limit=cost),'job_action')
+            self.background(lambda:self.store.jobs.retry(job_id,confirm_unknown=confirmed),'job_action')
 
     def show_page(self, name):
         self.page = name
@@ -738,8 +712,6 @@ class App:
     def append(self, box, title, content):
         box.configure(state='normal')
         box.insert('end', f"[{time.strftime('%H:%M:%S')}] {title}\n{content}\n\n")
-        if int(box.index('end-1c').split('.')[0]) > 5000:
-            box.delete('1.0', '1000.0')
         box.see('end')
         box.configure(state='disabled')
 
@@ -799,7 +771,7 @@ class App:
             return
         self.selected_session_id = session_id
         if not self.agent.api_key:
-            self.analysis_var.set('会话已保存。配置模型 API Key 和预算后，点击“分析本次采集”。')
+            self.analysis_var.set('会话已保存。配置模型 API Key 后，点击“分析本次采集”。')
             return
         if self.agent.lock.locked():
             self.analysis_var.set('Agent 正在分析其他任务；结束后可再点击分析本次会话。')
@@ -940,7 +912,7 @@ class App:
                 self.capture_table.set(session['id'], 'duration', duration)
         self.status_var.set(error or f"{self.network_status}  ·  {state}  ·  队列丢包 {capture['queue_dropped_packets']}{suffix}")
         usage = result['budget']
-        self.budget_var.set(f"API 累计 {usage['calls']} 次（不限次数）  ·  费用预留 {usage['reserved']:.4f} / {self.agent.config.max_cost}  ·  当前数据源 {source_text}")
+        self.budget_var.set(f"API 累计 {usage['calls']} 次  ·  估算费用 {usage['reserved']:.4f} USD（不限制用量）  ·  当前数据源 {source_text}")
 
     def search_connections(self, *_):
         self.connection_page_index = 0
@@ -1112,7 +1084,7 @@ class App:
     def new_chat(self):
         if not self.agent.lock.locked():
             self.agent.conversation.clear()
-            self.append(self.chat, '系统', '已开启新会话；累计预算保持不变。')
+            self.append(self.chat, '系统', '已开启新会话；累计用量统计保持不变。')
 
     def settings(self):
         window = tk.Toplevel(self.root, bg=BG)
@@ -1137,7 +1109,7 @@ class App:
         key.grid(row=2, column=1, sticky='ew', ipady=7)
         key_status = tk.StringVar()
         label(frame, textvariable=key_status, color=MUTED, wraplength=480, justify='left', anchor='w').grid(row=3, column=0, columnspan=2, sticky='w', pady=(4, 10))
-        label(frame, '密钥按 Windows 当前用户加密保存；留空表示继续使用已保存的密钥。\n累计调用次数不限；仍检查费用预算，实际费用以服务商账单为准。',
+        label(frame, '密钥按 Windows 当前用户加密保存；留空表示继续使用已保存的密钥。\n程序不设置调用或费用额度，实际费用和模型限制以服务商为准。',
               color=MUTED, wraplength=490, justify='left').grid(row=4, column=0, columnspan=2, sticky='w')
 
         def refresh_key_status(*_):
@@ -1196,7 +1168,7 @@ class App:
                 self.job_rows={r['job_id']:r for r in tasks['items']}
                 for r in tasks['items']:
                     self.job_tree.insert('', 'end',iid=r['job_id'],values=(r['event_id'],r['event_revision'],r['status'],
-                        f"{r['attempt_count']}/{r['max_attempts']}",f"{r['current_step']} · {r['tool_calls']}/{r['max_tools']}"))
+                        str(r['attempt_count']),f"{r['current_step']} · {r['tool_calls']} 次工具调用"))
                 if selection and selection[0] in self.job_rows: self.job_tree.selection_set(selection[0])
                 self.job_pages=tasks['pages']
                 self.job_page_label.configure(text=f"第{tasks['page']}/{tasks['pages']}页 · {tasks['total']}项 " + (result['runtime_error'] or ''))
@@ -1291,7 +1263,7 @@ class App:
                                                    result.get('session_revision'))
             if not saved:
                 if self.selected_session_id == session_id:
-                    self.analysis_var.set('采集记录已变化或报告超过保存上限，结果未保存；请重新分析。')
+                    self.analysis_var.set('采集记录已变化，结果未保存；请重新分析。')
                 return
             if self.selected_session_id != session_id:
                 return

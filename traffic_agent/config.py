@@ -6,8 +6,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 
-# USD per million tokens. DeepSeek uses the higher peak/cache-miss rate for
-# reservation so an off-peak or cache-hit response cannot exhaust the estimate.
+# USD per million tokens, used only for local usage estimates.
 MODEL_PRESETS = {
     "OpenAI": {
         "base_url": "https://api.openai.com/v1",
@@ -40,11 +39,8 @@ def choose_model(config, provider, model):
 class Config:
     base_url: str = "https://api.deepseek.com"
     model: str = "deepseek-flash"
-    max_cost: float = 1.0
     input_price: float = 0.30
     output_price: float = 1.20
-    max_steps: int = 8
-    max_tools: int = 16
     monitor_seconds: int = 300
 
     def validate(self):
@@ -53,14 +49,14 @@ class Config:
             raise ValueError("Base URL 必须是 HTTPS，或本机 HTTP；不能包含凭据、查询参数或片段")
         if not self.model.strip() or len(self.model) > 100:
             raise ValueError("请填写有效模型名称")
-        for name, lo, hi in [("max_steps", 1, 16), ("max_tools", 1, 32), ("monitor_seconds", 60, 86400)]:
+        for name, lo, hi in [("monitor_seconds", 60, 86400)]:
             value = getattr(self, name)
             if type(value) is not int or not lo <= value <= hi:
                 raise ValueError(f"{name} 必须在 {lo}–{hi} 之间")
-        for name in ("max_cost", "input_price", "output_price"):
+        for name in ("input_price", "output_price"):
             value = getattr(self, name)
             if not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
-                raise ValueError(f"{name} 必须为正数；单价与预算必须使用相同货币")
+                raise ValueError(f"{name} 必须为有限正数，单位为每百万 token 的美元估算单价")
 
     @classmethod
     def load(cls, path):

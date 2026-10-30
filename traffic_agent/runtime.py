@@ -4,13 +4,13 @@ import time
 import uuid
 
 from .investigation import SafeModelRetry
-from .jobs import BudgetBlocked, JobStopped, LimitReached
+from .jobs import JobStopped, LimitReached
 
 
 class InvestigationRuntime:
     def __init__(self,store,agent,start=True):
         if agent.store is not store or agent.budget_store is not store:
-            raise ValueError('持久化事件任务、证据和共享预算必须使用同一个Store；不支持跨库原子费用预留')
+            raise ValueError('持久化事件任务、证据和共享用量必须使用同一个Store；用量统计与请求记录需要同库原子提交')
         self.store,self.agent,self.jobs=store,agent,store.jobs
         self.owner=uuid.uuid4().hex
         self.stop_event=threading.Event()
@@ -57,13 +57,13 @@ class InvestigationRuntime:
                 self.jobs.finish(job['job_id'],report['调查完成状态'],report=report)
             except JobStopped:
                 pass  # Cancel/deletion already persisted by the user action.
-            except BudgetBlocked as exc:
-                self.jobs.finish(job['job_id'],'blocked_budget',str(exc))
             except (SafeModelRetry,InterruptedError) as exc:
-                retry=job['attempt_count']<job['max_attempts']
-                self.jobs.finish(job['job_id'],'retry_wait' if retry else 'failed',str(exc),
-                    retry_at=time.time()+(0 if isinstance(exc,InterruptedError) else 30*2**(job['attempt_count']-1)))
+                # Retry only definite rejections or safe local interruptions.
+                # Bound the delay, not the number of recoverable attempts.
+                delay=0 if isinstance(exc,InterruptedError) else 30*2**min(job['attempt_count']-1,5)
+                self.jobs.finish(job['job_id'],'retry_wait',str(exc),retry_at=time.time()+delay)
             except LimitReached as exc:
+                # Provider truncation is not an unknown or retryable request.
                 self.jobs.finish(job['job_id'],'partial',str(exc))
             except ValueError as exc:
                 self.jobs.finish(job['job_id'],'failed',str(exc)[:200])
